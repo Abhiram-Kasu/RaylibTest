@@ -9,8 +9,8 @@
 #include "raylib.h"
 #include "raymath.h"
 
-constexpr int _width = 1500;
-constexpr int _height = 400;
+constexpr int _width = 1600;
+constexpr int _height = 800;
 constexpr Vector2 gravity {0,.5};
 
 struct Drawable
@@ -98,7 +98,10 @@ struct Player : public Rect
 
 struct Enemy : public Rect
 {
-    const float rotation_error_threshold = 2;
+    const float rotation_error_threshold = 1;
+
+    float maxDistAwayFromCenter;
+
     Player* target = nullptr;
     float speed;
     float threshold;
@@ -110,18 +113,27 @@ struct Enemy : public Rect
         this->target = target;
         this->speed = speed;
         this->threshold = threshold;
+    	this->maxDistAwayFromCenter = sqrtf((width * width)/4.f + (height * height)/4.f);
     }
 
     void draw() override
     {
         // Calculate velocity based on the target position
-        vel = Vector2Scale(Vector2Normalize(Vector2Subtract(target->Center(), pos)),
+        const auto dirVel = Vector2Normalize(Vector2Subtract(target->Center(), pos));
+        vel = Vector2Scale(dirVel,
             speed * (Vector2Distance(pos, target->Center()) / threshold));
 
         // Calculate distance to the target center
 
         if (const auto dist = Vector2Distance(pos, target->Center()); dist <= threshold)
         {
+            if(dist < threshold - rotation_error_threshold)
+            {
+                vel = Vector2Scale(Vector2Negate(dirVel), threshold / dist);
+                isRotating = false;
+                Rect::draw();
+                return;
+            }
             // Calculate orthogonal vector
             Vector2 ortho{ vel.y, -vel.x };
 
@@ -147,6 +159,11 @@ struct Enemy : public Rect
                     counterClockWise = false;
                 }
             }
+            const auto predictedPathVector = Vector2Add(Vector2Scale(Vector2Normalize(vel), maxDistAwayFromCenter), pos);
+            if( predictedPathVector.x <=0 || predictedPathVector.y <= 0 || predictedPathVector.x >= _width || predictedPathVector.y >= _height)
+            {
+                counterClockWise = !counterClockWise;
+            }
         }
         else
         {
@@ -158,8 +175,18 @@ struct Enemy : public Rect
         // Call the draw method from the base class
         Rect::draw();
     }
+    void drawVelVectorWithScale(float scale) const
+    {
+        const auto enemyCenter = this->Center();
+        DrawLine(enemyCenter.x, enemyCenter.y, enemyCenter.x + (this->vel.x * scale), enemyCenter.y + (this->vel.y * scale), BLUE);
+    }
 
 };
+
+inline Color GetRandomColor()
+{
+    return { static_cast<unsigned char>(GetRandomValue(0,255)),static_cast<unsigned char>(GetRandomValue(0,255)), static_cast<unsigned char>(GetRandomValue(0,255)), 255 };
+}
 
 int main()
 {
@@ -168,17 +195,22 @@ int main()
     SetTargetFPS(144);
 
     std::vector<Drawable*> objects;
+    std::vector<Enemy*> enemies;
     Player mainCharacter ( {50,50} , 50, 50 , BLACK, {0});
     objects.push_back(&mainCharacter);
 
-    Enemy enemy{
-	    {
-		    static_cast<float>(GetRandomValue(0, _width - 20)), static_cast<float>(GetRandomValue(0, _height - 20))
+    const int enemyCount = 50;
+    for(int i = 0; i < enemyCount; i++)
+    {
+        auto enemy = new Enemy({
+            static_cast<float>(GetRandomValue(0, _width - 20)), static_cast<float>(GetRandomValue(0, _height - 20))
 
-	    }, 20, 20 , RED, {0}, &mainCharacter, 1, 100 };
+            }, 20, 20, GetRandomColor(), { 0 }, &mainCharacter, GetRandomValue(1,10) / 10.f, 100);
+		enemies.push_back(enemy);
+		objects.push_back(enemy);
+    }
+    
 
-
-    objects.push_back(&enemy);
 
 
     while( ! WindowShouldClose() )
@@ -190,21 +222,21 @@ int main()
         
         if (IsKeyDown(KEY_UP))
         {
-            mainCharacter.vel.y = -5;  // Apply a continuous upward force
+            mainCharacter.vel.y = -2;  // Apply a continuous upward force
         }else if(IsKeyDown(KEY_DOWN))
         {
-            mainCharacter.vel.y = 5;
+            mainCharacter.vel.y = 2;
         }else
         {
             mainCharacter.vel.y = 0;
         }
         if (IsKeyDown(KEY_RIGHT))
         {
-            mainCharacter.vel.x = 5;
+            mainCharacter.vel.x = 2;
         }
         else if (IsKeyDown(KEY_LEFT))
         {
-            mainCharacter.vel.x = -5;
+            mainCharacter.vel.x = -2;
         }
         else
         {
@@ -222,15 +254,12 @@ int main()
         auto debug = std::format("Vel: ( {} : {} )", mainCharacter.vel.x, mainCharacter.vel.y);
         DrawText(debug.c_str(), 0, 0, 40, BLACK);
 
-		if(enemy.isRotating)
+		for(const auto e : enemies)
 		{
-            DrawText("Rotating : true", 0, 40, 40, BLACK);
-		}else
-		{
-            DrawText("Rotating : false", 0, 40, 40, BLACK);
+            e->drawVelVectorWithScale(20);
 		}
-        const auto enemyCenter = enemy.Center();
-        DrawLine(enemyCenter.x, enemyCenter.y, enemyCenter.x + (enemy.vel.x * 20) , enemyCenter.y + (enemy.vel.y * 20), BLUE);
+
+
        
 
         
